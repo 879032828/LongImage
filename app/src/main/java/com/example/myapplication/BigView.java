@@ -8,6 +8,7 @@ import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
@@ -16,7 +17,12 @@ import android.widget.Scroller;
 import java.io.IOException;
 import java.io.InputStream;
 
-public class BigView extends View implements GestureDetector.OnGestureListener, View.OnTouchListener {
+public class BigView extends View implements GestureDetector.OnGestureListener, GestureDetector.OnDoubleTapListener, View.OnTouchListener {
+
+    private final String TAG = this.getClass().getSimpleName();
+
+    private static final int IMAGE_VERTICAL = 1;
+    private static final int IMAGE_HORIZONTAL = 2;
 
     private final BitmapFactory.Options mOptions;
     private final GestureDetector gestureDetector;
@@ -27,7 +33,6 @@ public class BigView extends View implements GestureDetector.OnGestureListener, 
     private BitmapRegionDecoder mDecoder;
     private int mViewWidth;
     private int mViewHeigh;
-    private int mViewWid;
     private float scale;
     private Bitmap bitmap;
 
@@ -89,15 +94,33 @@ public class BigView extends View implements GestureDetector.OnGestureListener, 
         }
 
         //确定要加载的图片的区域
-        mRect.left = 0;
-        mRect.top = 0;
-        mRect.right = mImageWidth;
+        if (getOrientation() == IMAGE_HORIZONTAL) {
+            mRect.left = 0;
+            mRect.top = 0;
+            mRect.bottom = mImageHeight;
 //          mViewWidth          mViewHeigh
 //          mImageWidth         mImageHeight
-        //视图的宽  除于  图片的宽
-        //因为这里只是对宽进行对齐，所以可以计算出宽度的缩放因子
-        scale = mViewWidth / (float) mImageWidth;
-        mRect.bottom = (int) (mViewHeigh / scale);
+            scale = mViewHeigh / (float) mImageHeight;
+            mRect.right = (int) (mViewWidth / scale);
+        } else {
+            mRect.left = 0;
+            mRect.top = 0;
+            mRect.right = mImageWidth;
+//          mViewWidth          mViewHeigh
+//          mImageWidth         mImageHeight
+            //视图的宽  除于  图片的宽
+            //因为这里只是对宽进行对齐，所以可以计算出宽度的缩放因子
+            scale = mViewWidth / (float) mImageWidth;
+            mRect.bottom = (int) (mViewHeigh / scale);
+        }
+    }
+
+    private int getOrientation() {
+        if (mImageWidth > mImageHeight) {
+            return IMAGE_HORIZONTAL;
+        } else {
+            return IMAGE_VERTICAL;
+        }
     }
 
     @Override
@@ -154,20 +177,44 @@ public class BigView extends View implements GestureDetector.OnGestureListener, 
      */
     @Override
     public boolean onScroll(MotionEvent motionEvent, MotionEvent motionEvent1, float x, float y) {
-        //手指从下往上，图片也要往上 y是负数
-        //改变加载图片的区域
-        mRect.offset(0, (int) y);
+        Log.d(TAG, "x方向移动的距离 :" + x);
+        Log.d(TAG, "y方向移动的距离 :" + y);
+        x = x * 0.5f;//减缓屏幕滚动距离
+        if (getOrientation() == IMAGE_HORIZONTAL) {
+            mRect.offset((int) x, 0);
 
-        //bottom 大于 图片的高时，要做处理
-        if (mRect.bottom > mImageHeight) {
-            mRect.bottom = mImageHeight;
-            mRect.top = mImageHeight - (int) (mViewHeigh / scale);
+            //right 大于 图片的宽时，要做处理
+            if (mRect.right > mImageWidth) {
+                mRect.right = mImageWidth;
+                mRect.left = mImageWidth - (int) (mViewWidth / scale);
+            }
+            //left 小于 0时，也要做处理
+            if (mRect.left < 0) {
+                mRect.left = 0;
+                mRect.right = (int) (mViewWidth / scale);
+            }
+        } else {
+            //手指从下往上，图片也要往上 y是正数
+            //手指从上往下，图片也要往下，y是负数
+            // 从onScroll的注释可以看到The distance along the Y axis that has been scrolled since the last call to onScroll
+            //y是当前滑动，距离上次滑动的距离
+            //改变加载图片的区域
+            mRect.offset(0, (int) y);
+            Log.d(TAG, "mRect的top ：" + mRect.top);
+            Log.d(TAG, "mRect的bottom ：" + mRect.bottom);
+
+            //bottom 大于 图片的高时，要做处理
+            if (mRect.bottom > mImageHeight) {
+                mRect.bottom = mImageHeight;
+                mRect.top = mImageHeight - (int) (mViewHeigh / scale);
+            }
+            //top 小于 0时，也要做处理
+            if (mRect.top < 0) {
+                mRect.top = 0;
+                mRect.bottom = (int) (mViewHeigh / scale);
+            }
         }
-        //top 小于 0时，也要做处理
-        if (mRect.top < 0) {
-            mRect.top = 0;
-            mRect.bottom = (int) (mViewHeigh / scale);
-        }
+
         //重绘
         invalidate();
         return false;
@@ -184,7 +231,14 @@ public class BigView extends View implements GestureDetector.OnGestureListener, 
      */
     @Override
     public boolean onFling(MotionEvent motionEvent, MotionEvent motionEvent1, float x, float y) {
-        scroller.fling(0, mRect.top, 0, (int) -y, 0, 0, 0, mImageHeight - (int) (mViewHeigh / scale));
+        Log.d(TAG, "x轴方向的速度：" + x);
+        Log.d(TAG, "y轴方向的速度：" + y);
+        if (getOrientation() == IMAGE_HORIZONTAL) {
+            scroller.fling(mRect.left, 0, (int) -(x * 0.5), 0, 0, (int) (mImageWidth - mViewWidth / scale), 0, 0);
+        } else {
+            scroller.fling(0, mRect.top, 0, (int) -y, 0, 0, 0, mImageHeight - (int) (mViewHeigh / scale));
+        }
+
         return false;
     }
 
@@ -197,9 +251,16 @@ public class BigView extends View implements GestureDetector.OnGestureListener, 
 
         //true 表示当前动画未结束
         if (scroller.computeScrollOffset()) {
-            mRect.top = scroller.getCurrY();
-            mRect.bottom = mRect.top + (int) (mViewHeigh / scale);
-            invalidate();
+            if (getOrientation() == IMAGE_HORIZONTAL) {
+                mRect.left = scroller.getCurrX();
+                mRect.right = mRect.left + (int) (mViewWidth / scale);
+                invalidate();
+            } else {
+                mRect.top = scroller.getCurrY();
+                mRect.bottom = mRect.top + (int) (mViewHeigh / scale);
+                invalidate();
+            }
+
         }
 
 
@@ -214,6 +275,22 @@ public class BigView extends View implements GestureDetector.OnGestureListener, 
     public boolean onTouch(View view, MotionEvent motionEvent) {
         //交给手势处理
         return gestureDetector.onTouchEvent(motionEvent);
+    }
+
+    @Override
+    public boolean onSingleTapConfirmed(MotionEvent e) {
+        return false;
+    }
+
+    @Override
+    public boolean onDoubleTap(MotionEvent e) {
+        Log.d(TAG, "onDoubleTap");
+        return false;
+    }
+
+    @Override
+    public boolean onDoubleTapEvent(MotionEvent e) {
+        return false;
     }
 }
 
